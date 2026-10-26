@@ -160,7 +160,7 @@ export function doctorClaudeHooks(settingsPath = getClaudeUserSettingsPath(), co
       settingsPath,
       exists: existsSync(settingsPath),
       valid: true,
-      message: `${asyncSupported ? status === "installed" ? "OpenPets Claude hooks are installed. Async hook install is enabled by OpenPets." : status === "needs_update" ? "OpenPets Claude hooks need update. Async hook install is enabled by OpenPets." : "OpenPets Claude hooks are not installed. Async hook install is enabled by OpenPets." : "Async hook install is disabled by OpenPets."} ${selectedPetId ? `Hook events target ${selectedPetId}.` : "Hook events target the default pet."}`,
+      message: `${asyncSupported ? status === "installed" ? "OpenPets Claude hooks are installed. Async hook install is enabled by OpenPets." : status === "needs_update" ? "OpenPets Claude hooks need update. Async hook install is enabled by OpenPets." : "OpenPets Claude hooks are not installed. Async hook install is enabled by OpenPets." : "Async hook install is disabled by OpenPets."} ${selectedPetId ? `Hook events target ${selectedPetId}.` : "Hook events target each session's own pet, or the default pet when the session has none."}`,
       preview,
       asyncSupported,
     };

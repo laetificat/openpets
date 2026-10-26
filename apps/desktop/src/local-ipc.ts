@@ -15,7 +15,8 @@ import { errorResponse, IpcProtocolError, maxIpcMessageBytes } from "./local-ipc
 import { installPet, installPetFromFolderWithResult, installPetFromZipFileWithResult } from "./pet-installation.js";
 import { clearConfinementState, setConfinementState } from "./confinement-manager.js";
 import { isConfinementSupported } from "./capabilities.js";
-import { findTerminalWindowForPid, subscribeWindowTracking } from "./window-tracker.js";
+import { findTerminalWindowForPid, getParentPid, subscribeWindowTracking } from "./window-tracker.js";
+import { findAgentSessionLease } from "./agent-session-lease.js";
 import { warnPetFallback } from "./pet-fallback-notify.js";
 import { getEligiblePoolPetIds, resolvePoolAssignment } from "./pet-pool.js";
 import { t } from "./i18n/index.js";
@@ -96,6 +97,7 @@ const handleRawRequest = createLocalIpcRequestHandler({
   stat,
   acquireLease: (requestedPetId, clientPid, sessionNonce) => leaseManager.acquire(requestedPetId, clientPid, sessionNonce),
   getLease: (leaseId) => leaseManager.get(leaseId),
+  findAgentSessionPetId,
   heartbeatLease: (leaseId) => leaseManager.heartbeat(leaseId),
   releaseLease: (leaseId) => leaseManager.release(leaseId),
   onLeaseAcquired: (requestedPetId, lease, clientPid) => {
@@ -334,6 +336,14 @@ function isPrivateOrLocalAddress(address: string): boolean {
   if (parts[0] === 169 && parts[1] === 254) return true;
 
   return false;
+}
+
+async function findAgentSessionPetId(clientPid: number): Promise<string | null> {
+  const lease = await findAgentSessionLease(clientPid, leaseManager.getExplicitLeaseSnapshots(), getParentPid);
+  if (!lease) return null;
+
+  debug("lease", "agent session lease matched", { clientPid, leaseId: lease.leaseId, actualPetId: lease.actualTargetPetId });
+  return lease.actualTargetPetId;
 }
 
 function handleLastExplicitLease(petId: string): void {

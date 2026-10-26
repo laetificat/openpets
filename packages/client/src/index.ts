@@ -81,7 +81,12 @@ export interface OpenPetsClient {
   listPets(): Promise<OpenPetsPetListResult>;
   installPet(petId: string): Promise<OpenPetsPetInstallResult>;
   installLocalPet(path: string, options: { readonly kind: "zip" | "folder" }): Promise<OpenPetsPetInstallResult>;
-  acquireLease(options?: { readonly requestedPetId?: string }): Promise<OpenPetsLeaseResult>;
+  /**
+   * `followAgentSession` joins the pet already leased by the agent session this
+   * process runs in (e.g. a Claude hook joining its session's MCP pet). The
+   * desktop rejects it with `no_agent_session` when that session has no pet.
+   */
+  acquireLease(options?: { readonly requestedPetId?: string; readonly followAgentSession?: boolean }): Promise<OpenPetsLeaseResult>;
   heartbeatLease(leaseId: string): Promise<{ readonly leaseId: string; readonly expiresAt: number }>;
   releaseLease(leaseId: string): Promise<{ readonly released: boolean }>;
   react(reaction: OpenPetsReaction, options?: { readonly leaseId?: string }): Promise<unknown>;
@@ -124,7 +129,7 @@ export function createOpenPetsClient(options: OpenPetsClientOptions = {}): OpenP
       }
       return parsePetInstallResult(await sendDiscoveredRequest("pets.install-local", { path: trimmedPath, kind: installOptions.kind }, { ...options, responseTimeoutMs: options.responseTimeoutMs ?? 60_000 }));
     },
-    acquireLease: (leaseOptions) => remote ? unsupportedRemote() : sendDiscoveredRequest("lease.acquire", { requestedPetId: leaseOptions?.requestedPetId, clientPid: process.pid, sessionNonce: SESSION_NONCE }, options),
+    acquireLease: (leaseOptions) => remote ? unsupportedRemote() : sendDiscoveredRequest("lease.acquire", { requestedPetId: leaseOptions?.requestedPetId, followAgentSession: leaseOptions?.followAgentSession === true ? true : undefined, clientPid: process.pid, sessionNonce: SESSION_NONCE }, options),
     heartbeatLease: (leaseId) => remote ? unsupportedRemote() : sendDiscoveredRequest("lease.heartbeat", { leaseId }, options),
     releaseLease: (leaseId) => remote ? unsupportedRemote() : sendDiscoveredRequest("lease.release", { leaseId }, options),
     react: (reaction, reactOptions) => remote

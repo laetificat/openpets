@@ -138,6 +138,15 @@ one window. The model (server side in `lease-manager.ts`):
   as the client PID - so a lease can't outlive its session even when the client
   process is orphaned but still alive.
 - The default pet is persistent and not lease-bound.
+- **Helpers can join their session's pet.** `lease.acquire` with
+  `followAgentSession: true` (and no `requestedPetId`) asks for the pet the
+  caller's own agent session already holds. The desktop
+  (`agent-session-lease.ts`) matches the caller's PPID chain against the parent
+  process of each explicit lease's client: a Claude Code hook and that
+  session's MCP server share the Claude process as ancestor. On a match the
+  helper gets an explicit lease on that pet; without one the request fails with
+  `no_agent_session` instead of claiming a fresh pool pet, and the helper falls
+  back to the default pet. PID 1 never counts as a shared ancestor.
 
 Integrations follow a consistent pattern: acquire a lease on first activity,
 heartbeat on an interval (the MCP server uses ~5s; OpenCode renews with a ~2s

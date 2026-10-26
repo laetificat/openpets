@@ -127,11 +127,17 @@ The deepest integration, because Claude Code has a rich hook system.
   question speech instead of "Approval needed", since it asks, not approves),
   stop → success, stop-failure → error, and `PreToolUse` is classified by tool
   (Edit/Write/MultiEdit → editing, Bash test commands → testing).
+- **Pet routing**: a hook with `--pet <id>` uses that pet. Without it the hook
+  acquires a lease with `followAgentSession`, joining the pet its own Claude
+  session's MCP server holds, so parallel sessions each animate their own pet
+  (subagents share their session's pet). If the session has no pet (no MCP
+  server, or it landed on the default pet) the event goes to the default pet.
 - **Project-local awareness**: if a project defines its own OpenPets hook
   (`.claude/settings.local.json` with `--project-local`), the global hook stands
   down to avoid double-firing.
 - **Throttling**: ~20s speech / ~3s permission / ~10s reaction cooldowns via a
-  JSON state file, so the pet doesn't chatter.
+  JSON state file, kept per Claude `session_id`, so the pet doesn't chatter
+  while parallel sessions never mute each other.
 - **Memory**: the desktop's `claude-memory.ts` manages `~/.claude/openpets.md`
   (the instructions file telling Claude how to use the pet).
 

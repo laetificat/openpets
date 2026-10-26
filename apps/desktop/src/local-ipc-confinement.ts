@@ -43,6 +43,10 @@ export function createLocalIpcConfinementCoordinator(
     // raw lease is intentional: LeaseManager.get() can remove expired leases.
     const lease = deps.getRawLease(leaseId);
     if (!lease || lease.targetKind !== "explicit") return;
+    // Helper leases (e.g. a hook per event) join a pet their session's own lease
+    // already tracks; tracking them would poll windows (and prompt for Screen
+    // Recording on macOS) on every hook event.
+    if (lease.followsAgentSession) return;
     const petId = lease.actualPetId;
 
     const pollerDeps: ConfinementPollerDeps = {

@@ -31,6 +31,7 @@ function makeDeps(overrides: Partial<LocalIpcRequestHandlerDeps> = {}): LocalIpc
     stat: async () => ({ size: 1, isDirectory: () => false, isFile: () => true }),
     acquireLease: () => lease,
     getLease: () => null,
+    findAgentSessionPetId: async () => null,
     heartbeatLease: () => ({ leaseId: "lease-1", expiresAt: 456 }),
     releaseLease: () => ({ released: false }),
     onLeaseAcquired: () => undefined,
@@ -113,6 +114,33 @@ async function handle(raw: string, deps: Partial<LocalIpcRequestHandlerDeps> = {
   });
   assert.deepEqual(events, ["acquire", "hook:lease-1:42"]);
   assert.deepEqual(response.result, lease);
+}
+
+// A Claude hook joins the pet its own session's MCP server leased instead of the default pet.
+{
+  const acquired: Array<string | undefined> = [];
+  const response = await handle(request("lease.acquire", { followAgentSession: true, clientPid: 77, sessionNonce: "nonce" }), {
+    findAgentSessionPetId: async (clientPid) => (clientPid === 77 ? "agent-pet" : null),
+    acquireLease: (requestedPetId) => {
+      acquired.push(requestedPetId);
+      return lease;
+    },
+  });
+  assert.deepEqual(acquired, ["agent-pet"]);
+  assert.deepEqual(response.result, lease);
+}
+
+// Without a session pet the helper must not take a fresh pool pet; it falls back to the default pet itself.
+{
+  let acquireCalled = false;
+  const response = await handle(request("lease.acquire", { followAgentSession: true, clientPid: 78, sessionNonce: "nonce" }), {
+    acquireLease: () => {
+      acquireCalled = true;
+      return lease;
+    },
+  });
+  assert.equal(acquireCalled, false);
+  assert.equal(response.error?.code, "no_agent_session");
 }
 
 {

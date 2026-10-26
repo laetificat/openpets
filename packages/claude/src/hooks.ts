@@ -18,6 +18,8 @@ export interface ClaudeHookDecision {
 export interface ClaudeHookOptions {
   readonly client?: OpenPetsClient;
   readonly configuredPetId?: string;
+  /** Agent session id; throttling is kept per session so parallel sessions do not mute each other. */
+  readonly sessionId?: string;
   readonly projectLocal?: boolean;
   readonly now?: () => number;
   readonly random?: () => number;
@@ -30,6 +32,9 @@ const maxProjectLocalSettingsBytes = 256 * 1024;
 const speechCooldownMs = 20_000;
 const permissionCooldownMs = 3_000;
 const reactionCooldownMs = 10_000;
+const throttleRetentionMs = speechCooldownMs;
+const sessionIdPattern = /^[A-Za-z0-9_-]{1,128}$/;
+const sessionScopePattern = /^session:[A-Za-z0-9_-]{1,128}\|/;
 
 export async function runClaudeHookFromStdin(stdin: NodeJS.ReadStream = process.stdin, options: ClaudeHookOptions = {}): Promise<number> {
   try {
@@ -55,14 +60,19 @@ export async function handleClaudeHookPayload(raw: string, options: ClaudeHookOp
   if (!decision?.reaction) return decision;
   if (!options.projectLocal && hasProjectLocalOpenPetsHook()) return decision;
 
-  await dispatchHookDecision(decision, options);
+  const sessionId = typeof parsed.session_id === "string" ? parsed.session_id : undefined;
+  await dispatchHookDecision(decision, { ...options, sessionId: options.sessionId ?? sessionId });
   return decision;
 }
 
 /**
- * Sends a mapped hook decision to the pet: throttled per reaction/speech
- * category through a throttle file shared by every OpenPets agent hook, using
- * only validated canned speech, and never throwing.
+ * Sends a mapped hook decision to the pet: throttled per session and
+ * reaction/speech category through a throttle file shared by every OpenPets
+ * agent hook, using only validated canned speech, and never throwing.
+ *
+ * Without `--pet` the hook joins the pet its own agent session leased (the
+ * session's MCP server), so parallel sessions each animate their own pet. When
+ * the session holds no pet the event goes to the default pet.
  */
 export async function dispatchHookDecision(decision: ClaudeHookDecision, options: ClaudeHookOptions = {}): Promise<void> {
   if (!decision.reaction) return;
@@ -72,7 +82,7 @@ export async function dispatchHookDecision(decision: ClaudeHookDecision, options
   if (!shouldSpeak && !shouldReact) return;
 
   const client = options.client ?? createOpenPetsClient({ connectTimeoutMs: 500, responseTimeoutMs: 500 });
-  const lease = options.configuredPetId ? await acquireHookLease(client, options.configuredPetId, options.debug) : undefined;
+  const lease = await acquireHookLease(client, options.configuredPetId, options.debug);
   try {
     if (decision.speechCategory && shouldSpeak) {
       const message = validateHookSpeech(pickHookSpeech(decision.speechCategory, options.random));
@@ -113,9 +123,10 @@ function containsProjectLocalOpenPetsHook(value: unknown): boolean {
   return false;
 }
 
-async function acquireHookLease(client: OpenPetsClient, requestedPetId: string, debug = false): Promise<{ readonly leaseId: string } | undefined> {
+async function acquireHookLease(client: OpenPetsClient, requestedPetId: string | undefined, debug = false): Promise<{ readonly leaseId: string } | undefined> {
   try {
-    return await client.acquireLease({ requestedPetId });
+    if (requestedPetId) return await client.acquireLease({ requestedPetId });
+    return await client.acquireLease({ followAgentSession: true });
   } catch (error) {
     if (debug) process.stderr.write(`OpenPets Claude hook lease unavailable: ${sanitizeDebugError(error)}\n`);
     return undefined;
@@ -177,18 +188,27 @@ function extractBashCommand(value: unknown): string {
 function shouldSendSpeech(category: HookSpeechCategory, options: ClaudeHookOptions): boolean {
   const now = options.now?.() ?? Date.now();
   const cooldown = category === "permission" || category === "question" ? permissionCooldownMs : speechCooldownMs;
-  return shouldSendThrottleKey(category, cooldown, now, options.throttlePath ?? getDefaultThrottlePath());
+  return shouldSendThrottleKey(scopeThrottleKey(category, options.sessionId), cooldown, now, options.throttlePath ?? getDefaultThrottlePath());
 }
 
 function shouldSendReaction(reaction: OpenPetsReaction, options: ClaudeHookOptions): boolean {
   const now = options.now?.() ?? Date.now();
-  return shouldSendThrottleKey(`reaction:${reaction}`, reactionCooldownMs, now, options.throttlePath ?? getDefaultThrottlePath());
+  return shouldSendThrottleKey(scopeThrottleKey(`reaction:${reaction}`, options.sessionId), reactionCooldownMs, now, options.throttlePath ?? getDefaultThrottlePath());
+}
+
+function scopeThrottleKey(key: string, sessionId: string | undefined): string {
+  if (!sessionId || !sessionIdPattern.test(sessionId)) return key;
+  return `session:${sessionId}|${key}`;
 }
 
 function shouldSendThrottleKey(key: string, cooldown: number, now: number, path: string): boolean {
   const state = readThrottleState(path);
   const previous = typeof state[key] === "number" ? state[key] : 0;
   if (now - previous < cooldown) return false;
+  // Session-scoped keys would pile up forever; drop entries no cooldown still needs.
+  for (const [storedKey, storedAt] of Object.entries(state)) {
+    if (now - storedAt >= throttleRetentionMs) delete state[storedKey];
+  }
   state[key] = now;
   writeThrottleState(path, state);
   return true;
@@ -199,8 +219,9 @@ function readThrottleState(path: string): Record<string, number> {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
     if (!isRecord(parsed)) return {};
     const state: Record<string, number> = {};
-    for (const [key, value] of Object.entries(parsed)) {
-      if ((key === "thinking" || key === "success" || key === "error" || key === "permission" || key === "question" || key.startsWith("reaction:")) && typeof value === "number" && Number.isFinite(value)) state[key] = value;
+    for (const [scopedKey, value] of Object.entries(parsed)) {
+      const key = scopedKey.replace(sessionScopePattern, "");
+      if ((key === "thinking" || key === "success" || key === "error" || key === "permission" || key === "question" || key.startsWith("reaction:")) && typeof value === "number" && Number.isFinite(value)) state[scopedKey] = value;
     }
     return state;
   } catch {

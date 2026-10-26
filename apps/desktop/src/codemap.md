@@ -357,6 +357,7 @@ main.ts/settings → i18n.setLocaleFromPreference(system/user locale)
 - `pet-transient-presentation.ts`: Reusable per-pet owner for transient display/badge state, transition-unique opaque render-composition tokens, independent display/badge timer guards, timer cleanup, and deterministic transition callbacks; default/agent controllers retain window/voice/lease role ownership
 - `pet-display-coordinator.ts`: Electron-free display/power listener lifecycle, independent topology debounce lanes, cache invalidation, ordered reclamp fanout, and resume recovery
 - `default-pet-controller.ts`: Default pet visibility, position persistence, persisted explicit Hide vs temporary window-manager-close hiding, transient reactions, status badges, and the private weekly Manager Check-in offer/action-circle presentation
+- `agent-session-lease.ts`: Pure match of a helper process (e.g. a Claude hook) to the explicit lease of its own agent session via a shared ancestor in the PPID chain; injected parent lookup
 - `agent-pet-controller.ts`: Lease-triggered pet windows, dismissal tracking, transient displays, status badges, logging
 - `pet-motion-engine.ts`: Interpolated movement vector/tick engine for plugin-driven pet motion and target-following behavior
 - `pet-throw-core.ts` / `pet-throw.ts`: Ball-like throw after a drag release — pure velocity tracking and bounce/gravity stepping, plus the shared-timer adapter

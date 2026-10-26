@@ -51,8 +51,10 @@ export interface LocalIpcRequestHandlerDeps {
   readonly installPetFromFolderWithResult: (path: string) => Promise<LocalIpcInstallResult>;
   readonly installPetFromZipFileWithResult: (path: string) => Promise<LocalIpcInstallResult>;
   readonly stat: (path: string) => Promise<LocalIpcFileStat>;
-  readonly acquireLease: (requestedPetId: string | undefined, clientPid: number | undefined, sessionNonce: string | undefined) => LeaseSnapshot;
+  readonly acquireLease: (requestedPetId: string | undefined, clientPid: number | undefined, sessionNonce: string | undefined, followsAgentSession: boolean) => LeaseSnapshot;
   readonly getLease: (leaseId: string) => LeaseSnapshot | null;
+  /** Pet leased by the agent session that `clientPid` runs in, if any. */
+  readonly findAgentSessionPetId: (clientPid: number) => Promise<string | null>;
   readonly heartbeatLease: (leaseId: string) => { readonly leaseId: string; readonly expiresAt: number };
   readonly releaseLease: (leaseId: string) => { readonly released: boolean };
   readonly onLeaseAcquired: (requestedPetId: string | undefined, lease: LeaseSnapshot, clientPid: number | undefined) => void;
@@ -176,9 +178,22 @@ async function handleRequest(request: OpenPetsIpcRequest, deps: LocalIpcRequestH
     const requestedPetId = validateRequestedPetId(params.requestedPetId);
     const clientPid = typeof params.clientPid === "number" && params.clientPid > 0 ? params.clientPid : undefined;
     const sessionNonce = validateSessionNonce(params.sessionNonce);
-    deps.debug("lease acquire requested", { requestId: request.id, requestedPetId, clientPid, sessionNonce });
-    const lease = deps.acquireLease(requestedPetId, clientPid, sessionNonce);
-    deps.onLeaseAcquired(requestedPetId, lease, clientPid);
+    const followAgentSession = params.followAgentSession === true;
+    deps.debug("lease acquire requested", { requestId: request.id, requestedPetId, clientPid, sessionNonce, followAgentSession });
+
+    const joinsAgentSession = followAgentSession && requestedPetId === undefined;
+    let targetPetId = requestedPetId;
+    if (joinsAgentSession) {
+      const sessionPetId = clientPid === undefined ? null : await deps.findAgentSessionPetId(clientPid);
+      deps.debug("lease agent session resolved", { requestId: request.id, clientPid, sessionPetId });
+      if (sessionPetId === null) {
+        throw new IpcProtocolError("no_agent_session", "No pet is leased by this agent session.");
+      }
+      targetPetId = sessionPetId;
+    }
+
+    const lease = deps.acquireLease(targetPetId, clientPid, sessionNonce, joinsAgentSession);
+    deps.onLeaseAcquired(targetPetId, lease, clientPid);
     return lease;
   }
 

@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 
 import { addOpenPetsHooks, assertInstalledClaudeCliPath, claudeHookEvents, createOpenPetsHookCommand, createOpenPetsHookSettingsPreview, doctorClaudeHooks, findInstalledOpenPetsClaudeCli, getBundledClaudeCliPath, getLocalClaudeCliPath, installClaudeHooks, openPetsHookMarker, removeOpenPetsHooks, uninstallClaudeHooks } from "./hook-settings.js";
 import { hookSpeechPools } from "./hook-messages.js";
+import { OpenPetsClientError } from "@open-pets/client";
+
 import { handleClaudeHookPayload, hasProjectLocalOpenPetsHook, mapClaudeHookEvent, validateHookSpeech } from "./hooks.js";
 
 assert.equal(mapClaudeHookEvent({ hook_event_name: "UserPromptSubmit" })?.reaction, "thinking");
@@ -36,13 +38,18 @@ for (const unsafe of ["", "a".repeat(141), "line\nbreak", "const x = 1", "https:
 }
 
 const calls: Array<{ readonly kind: string; readonly value: string; readonly leaseId?: string; readonly requestedPetId?: string }> = [];
+let sessionPetId: string | undefined;
 const client = {
   hello: async () => ({}),
   status: async () => ({ ok: true, appRunning: true }),
   listPets: async () => ({ ok: true as const, pets: [], defaultPetId: "builtin" }),
   installPet: async () => { throw new Error("unused"); },
   installLocalPet: async () => { throw new Error("unused"); },
-  acquireLease: async (options?: { readonly requestedPetId?: string }) => {
+  acquireLease: async (options?: { readonly requestedPetId?: string; readonly followAgentSession?: boolean }) => {
+    if (options?.followAgentSession) {
+      if (!sessionPetId) throw new OpenPetsClientError("no_agent_session", "No pet is leased by this agent session.");
+      return { leaseId: `lease-${sessionPetId}`, targetKind: "explicit" as const, actualTargetPetId: sessionPetId, actualTargetPetName: sessionPetId, usingDefaultPet: false, expiresAt: Date.now() + 15_000, leaseActive: true };
+    }
     calls.push({ kind: "lease", value: "acquire", requestedPetId: options?.requestedPetId });
     return { leaseId: "lease-fixer", requestedPetId: options?.requestedPetId, targetKind: "explicit" as const, actualTargetPetId: options?.requestedPetId ?? "builtin", actualTargetPetName: "Fixer", usingDefaultPet: false, expiresAt: Date.now() + 15_000, leaseActive: true };
   },
@@ -72,6 +79,18 @@ await handleClaudeHookPayload(JSON.stringify({ hook_event_name: "PermissionReque
 assert.equal(calls.length, beforeQuestionRepeat, "question speech repeated inside the 3s cooldown should be throttled");
 await handleClaudeHookPayload(JSON.stringify({ hook_event_name: "PermissionRequest", tool_name: "AskUserQuestion" }), { client, throttlePath: join(dir, "throttle.json"), now: () => 107_000, random: () => 0 });
 assert.deepEqual(calls.at(-1), { kind: "say", value: "Question for you", leaseId: undefined });
+
+// Without --pet a hook joins its own session's pet, and parallel sessions do not throttle each other.
+sessionPetId = "robot";
+await handleClaudeHookPayload(JSON.stringify({ hook_event_name: "Stop", session_id: "session-a" }), { client, throttlePath: join(dir, "sessions.json"), now: () => 200_000 });
+assert.deepEqual(calls.at(-1), { kind: "react", value: "success", leaseId: "lease-robot" });
+sessionPetId = "meowbyte";
+await handleClaudeHookPayload(JSON.stringify({ hook_event_name: "Stop", session_id: "session-b" }), { client, throttlePath: join(dir, "sessions.json"), now: () => 201_000 });
+assert.deepEqual(calls.at(-1), { kind: "react", value: "success", leaseId: "lease-meowbyte" });
+const beforeSameSessionRepeat = calls.length;
+await handleClaudeHookPayload(JSON.stringify({ hook_event_name: "Stop", session_id: "session-b" }), { client, throttlePath: join(dir, "sessions.json"), now: () => 202_000 });
+assert.equal(calls.length, beforeSameSessionRepeat, "a repeated reaction within one session should still be throttled");
+sessionPetId = undefined;
 
 const projectDir = join(dir, "project-with-local-hook");
 mkdirSync(join(projectDir, ".claude"), { recursive: true });

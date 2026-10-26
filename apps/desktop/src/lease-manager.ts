@@ -20,6 +20,11 @@ export interface PetLease {
    * PID will carry a different nonce, preventing stale-lease reuse.
    */
   readonly sessionNonce?: string;
+  /**
+   * Set for helper leases (e.g. a Claude hook) that joined their agent
+   * session's pet. They never identify a session themselves.
+   */
+  readonly followsAgentSession?: boolean;
   /** PID of the terminal emulator process hosting the client (resolved async). */
   readonly terminalOwnerPid?: number;
   /** Human-readable terminal app name, e.g. "Ghostty" or "Terminal". */
@@ -40,6 +45,8 @@ export interface LeaseSnapshot {
   readonly leaseActive: boolean;
   /** PID of the MCP client that acquired this lease. */
   readonly clientPid?: number;
+  /** True for helper leases that joined their agent session's pet. */
+  readonly followsAgentSession?: boolean;
   /** PID of the terminal emulator hosting the client (may be set async). */
   readonly terminalOwnerPid?: number;
   /** Terminal app name, e.g. "Ghostty". */
@@ -95,7 +102,7 @@ export class LeaseManager {
     this.#isPetEligible = options.isPetEligible;
   }
 
-  acquire(requestedPetId?: string, clientPid?: number, sessionNonce?: string): LeaseSnapshot {
+  acquire(requestedPetId?: string, clientPid?: number, sessionNonce?: string, followsAgentSession = false): LeaseSnapshot {
     const now = this.#now();
 
     // Expired leases must be removed before resolving a fresh target so they
@@ -153,6 +160,7 @@ export class LeaseManager {
       expiresAt: now + this.#ttlMs,
       clientPid,
       sessionNonce,
+      followsAgentSession: followsAgentSession || undefined,
     };
 
     const hadExplicitLease = lease.targetKind === "explicit" && this.countExplicitLeases(lease.actualPetId) > 0;
@@ -349,6 +357,7 @@ export class LeaseManager {
       expiresAt: lease.expiresAt,
       leaseActive: true,
       clientPid: lease.clientPid,
+      followsAgentSession: lease.followsAgentSession,
       terminalOwnerPid: lease.terminalOwnerPid,
       terminalAppName: lease.terminalAppName,
     };

@@ -58,6 +58,16 @@ function makeDeps(overrides: Partial<LocalIpcConfinementCoordinatorDeps> = {}): 
   }));
   await missingCoordinator.trackLease("missing-lease", 42);
   assert.equal(findCalls, 0);
+
+  const helperCoordinator = createLocalIpcConfinementCoordinator(makeDeps({
+    getRawLease: () => ({ ...makeLease("helper-lease", "agent-pet"), followsAgentSession: true }),
+    findTerminalWindow: async () => {
+      findCalls++;
+      return makeInfo();
+    },
+  }));
+  await helperCoordinator.trackLease("helper-lease", 42);
+  assert.equal(findCalls, 0, "hook leases must not start window tracking");
 }
 
 {

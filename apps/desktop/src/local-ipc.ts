@@ -95,7 +95,7 @@ const handleRawRequest = createLocalIpcRequestHandler({
   installPetFromFolderWithResult,
   installPetFromZipFileWithResult,
   stat,
-  acquireLease: (requestedPetId, clientPid, sessionNonce) => leaseManager.acquire(requestedPetId, clientPid, sessionNonce),
+  acquireLease: (requestedPetId, clientPid, sessionNonce, followsAgentSession) => leaseManager.acquire(requestedPetId, clientPid, sessionNonce, followsAgentSession),
   getLease: (leaseId) => leaseManager.get(leaseId),
   findAgentSessionPetId,
   heartbeatLease: (leaseId) => leaseManager.heartbeat(leaseId),

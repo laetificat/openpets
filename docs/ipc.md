@@ -146,7 +146,11 @@ one window. The model (server side in `lease-manager.ts`):
   session's MCP server share the Claude process as ancestor. On a match the
   helper gets an explicit lease on that pet; without one the request fails with
   `no_agent_session` instead of claiming a fresh pool pet, and the helper falls
-  back to the default pet. PID 1 never counts as a shared ancestor.
+  back to the default pet. PID 1 never counts as a shared ancestor. The nearest
+  ancestor wins, so a session started from another session's shell keeps its
+  own pet, and helper leases never identify a session themselves. A helper that
+  fires before its session's MCP server holds a lease (the first prompt of a
+  `claude -p` run) resolves to the next session up, or to the default pet.
 
 Integrations follow a consistent pattern: acquire a lease on first activity,
 heartbeat on an interval (the MCP server uses ~5s; OpenCode renews with a ~2s

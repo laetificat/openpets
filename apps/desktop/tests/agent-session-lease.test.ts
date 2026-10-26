@@ -17,6 +17,7 @@ const parents = new Map<number, number>([
   [203, 200],
   [300, 102],
   [301, 300],
+  [302, 300],
   [303, 300],
   [601, 1],
   [700, 1],
@@ -26,6 +27,8 @@ const getParent = async (pid: number) => parents.get(pid) ?? null;
 const leases = [
   { leaseId: "lease-robot", actualTargetPetId: "robot", clientPid: 101 },
   { leaseId: "lease-meowbyte", actualTargetPetId: "meowbyte", clientPid: 201 },
+  // An earlier hook of session 300 that was misrouted to session 100's pet.
+  { leaseId: "lease-helper", actualTargetPetId: "robot", clientPid: 302, followsAgentSession: true },
   { leaseId: "lease-tom", actualTargetPetId: "tom", clientPid: 301 },
   { leaseId: "lease-orphan", actualTargetPetId: "orphan", clientPid: 601 },
 ];
@@ -34,7 +37,8 @@ const leases = [
 assert.equal((await findAgentSessionLease(103, leases, getParent))?.actualTargetPetId, "robot");
 assert.equal((await findAgentSessionLease(203, leases, getParent))?.actualTargetPetId, "meowbyte");
 
-// A session started from inside another session gets its own pet, not the outer session's.
+// A session started from inside another session gets its own pet, not the outer
+// session's, and other hooks' leases never stand in for the session.
 assert.equal((await findAgentSessionLease(303, leases, getParent))?.actualTargetPetId, "tom");
 
 // A process outside any agent session (only PID 1 above it) matches nothing,

@@ -19,6 +19,7 @@ export interface AgentSessionLeaseCandidate {
   readonly leaseId: string;
   readonly actualTargetPetId: string;
   readonly clientPid?: number;
+  readonly followsAgentSession?: boolean;
 }
 
 const maxAncestorDepth = 10;
@@ -34,6 +35,9 @@ export async function findAgentSessionLease<T extends AgentSessionLeaseCandidate
   const leasesByAgentPid = new Map<number, T>();
   for (const lease of explicitLeases) {
     if (lease.clientPid === undefined || lease.clientPid === helperPid) continue;
+    // Other helpers' leases do not identify a session; counting them would let
+    // one misrouted event pull the session's later events along.
+    if (lease.followsAgentSession) continue;
 
     const agentPid = await getParent(lease.clientPid);
     if (agentPid !== null && !leasesByAgentPid.has(agentPid)) leasesByAgentPid.set(agentPid, lease);

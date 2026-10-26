@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { buildClaudeMcpGetCommand, buildClaudeMcpPreview, classifyClaudeMcpStatus, formatCommandForDisplay, getBundledMcpEntryPath, getLocalMcpEntryPath, mapAsarPathToUnpacked, parseClaudeMcpGetOutput, parseClaudeMcpListOutput, validateOpenPetsPetArg } from "./claude-code.js";
+import { buildClaudeMcpGetCommand, buildClaudeMcpPreview, formatCommandForDisplay, getBundledMcpEntryPath, getLocalMcpEntryPath, isClaudeMcpServerMissingOutput, mapAsarPathToUnpacked, parseClaudeMcpGetOutput, validateOpenPetsPetArg } from "./claude-code.js";
 
 const defaultPreview = buildClaudeMcpPreview();
 assert.deepEqual(defaultPreview.add.args, ["mcp", "add", "--scope", "user", "openpets", "--", "npx", "-y", "@open-pets/mcp"]);
@@ -22,8 +22,8 @@ assert.throws(() => validateOpenPetsPetArg("Bad Pet"));
 assert.throws(() => validateOpenPetsPetArg("bad/pet"));
 assert.equal(validateOpenPetsPetArg("snoopy"), "snoopy");
 
-assert.equal(parseClaudeMcpListOutput("openpets: npx -y @open-pets/mcp").present, true);
-assert.equal(parseClaudeMcpListOutput("No MCP servers configured").present, false);
+assert.equal(isClaudeMcpServerMissingOutput('No MCP server named "openpets". Configured servers: github'), true);
+assert.equal(isClaudeMcpServerMissingOutput("Error: EACCES: permission denied, open '~/.claude.json'"), false);
 
 const jsonGet = parseClaudeMcpGetOutput(JSON.stringify({ command: "npx", args: ["-y", "@open-pets/mcp", "--pet", "snoopy"] }), "snoopy");
 assert.equal(jsonGet.present, true);
@@ -64,7 +64,7 @@ assert.equal(different.present, true);
 assert.equal(different.verified, true);
 assert.equal(different.matchesExpected, false);
 
-const unverifiable = classifyClaudeMcpStatus("openpets", "Name: openpets\nTransport: stdio", "snoopy");
+const unverifiable = parseClaudeMcpGetOutput("Name: openpets\nTransport: stdio", "snoopy");
 assert.equal(unverifiable.present, true);
 assert.equal(unverifiable.verified, false);
 assert.equal(unverifiable.matchesExpected, false);

@@ -114,15 +114,12 @@ export function validateOpenPetsPetArg(value: string): string {
   return trimmed;
 }
 
-export function parseClaudeMcpListOutput(output: string): ParsedClaudeMcpEntry {
-  const normalized = output.toLowerCase();
-  const present = /(^|\s|[•*-])openpets(\s|$|:|-)/m.test(normalized) || normalized.includes("openpets:");
-  return {
-    present,
-    source: present ? "list" : "none",
-    verified: false,
-    matchesExpected: false,
-  };
+/**
+ * `claude mcp get openpets` exits non-zero both when the entry is missing and
+ * when Claude itself fails; only the former means "needs setup".
+ */
+export function isClaudeMcpServerMissingOutput(output: string): boolean {
+  return /no mcp server (named|found)/i.test(output);
 }
 
 export function parseClaudeMcpGetOutput(output: string, expectedPetId?: string, commandMode: OpenPetsCommandMode = "published", nodeCommand = "node"): ParsedClaudeMcpEntry {
@@ -149,14 +146,6 @@ export function parseClaudeMcpGetOutput(output: string, expectedPetId?: string, 
   }
 
   return { present: false, source: "none", verified: false, matchesExpected: false };
-}
-
-export function classifyClaudeMcpStatus(listOutput: string, getOutput: string | undefined, expectedPetId?: string, commandMode: OpenPetsCommandMode = "published", nodeCommand = "node"): ParsedClaudeMcpEntry {
-  if (getOutput) {
-    const parsedGet = parseClaudeMcpGetOutput(getOutput, expectedPetId, commandMode, nodeCommand);
-    if (parsedGet.present) return parsedGet;
-  }
-  return parseClaudeMcpListOutput(listOutput);
 }
 
 export function formatCommandForDisplay(spec: ClaudeCommandSpec): string {

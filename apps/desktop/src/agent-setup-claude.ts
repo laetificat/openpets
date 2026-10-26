@@ -1,9 +1,10 @@
 import {
   buildClaudeMcpGetCommand,
   buildClaudeMcpPreview,
-  classifyClaudeMcpStatus,
   doctorClaudeHooks,
   installClaudeHooks,
+  isClaudeMcpServerMissingOutput,
+  parseClaudeMcpGetOutput,
   type ClaudeCommandSpec,
   type ClaudeHookDoctorResult,
   type ClaudeMcpPreview,
@@ -32,7 +33,6 @@ export interface ClaudeCodeStatus {
   readonly details: string;
   readonly claudeCommand?: string;
   readonly version?: string;
-  readonly mcpListWorks: boolean;
   readonly openPetsEntry: ParsedClaudeMcpEntry;
   readonly canConfigure: boolean;
   readonly canReplace: boolean;
@@ -278,7 +278,6 @@ function createBundledResourceErrorStatus(message: string): ClaudeCodeStatus {
     "Packaged commands unavailable",
     message,
     undefined,
-    { ok: false, timedOut: false, stdout: "", stderr: "", error: message },
     { present: false, source: "none", verified: false, matchesExpected: false },
   );
 }
@@ -296,7 +295,6 @@ async function detectClaudeCodeStatus(dependencies: ClaudeSetupDependencies): Pr
         "Node required",
         `Node.js is required for packaged OpenPets commands. Open Claude configuration, expand Advanced detection, set the Node.js command path, then try again. ${dependencies.summarizeCommandResult(node)}`,
         undefined,
-        node,
         { present: false, source: "none", verified: false, matchesExpected: false },
       );
     }
@@ -310,37 +308,34 @@ async function detectClaudeCodeStatus(dependencies: ClaudeSetupDependencies): Pr
       "Not detected",
       `${hasOverride ? "Claude Code did not run from the saved command path" : "Claude Code was not found or did not run"}: ${dependencies.summarizeCommandResult(version)}`,
       undefined,
-      version,
       { present: false, source: "none", verified: false, matchesExpected: false },
     );
   }
 
-  const list = await runClaudeCommandWithTimeoutRetry(dependencies, { command: "claude", args: ["mcp", "list"] });
-  if (!list.ok) {
+  // Query only the openpets entry: `claude mcp list` health-checks every
+  // configured server and easily outlives the status timeout.
+  const missingEntry: ParsedClaudeMcpEntry = { present: false, source: "none", verified: false, matchesExpected: false };
+  const get = await runClaudeCommandWithTimeoutRetry(dependencies, buildClaudeMcpGetCommand());
+  const entryMissing = !get.ok && !get.timedOut && isClaudeMcpServerMissingOutput(`${get.stdout}\n${get.stderr}`);
+  if (!get.ok && !entryMissing) {
     return createStatus(
       "error",
       "Error / needs attention",
-      `Claude Code was detected, but MCP status failed: ${dependencies.summarizeCommandResult(list)}`,
+      `Claude Code was detected, but MCP status failed: ${dependencies.summarizeCommandResult(get)}`,
       dependencies.sanitizeOutput(version.stdout || version.stderr),
-      list,
-      { present: false, source: "none", verified: false, matchesExpected: false },
+      missingEntry,
     );
   }
 
-  const listed = classifyClaudeMcpStatus(list.stdout, undefined, dependencies.selectedPetId, dependencies.commandMode, dependencies.preferredNodeCommand);
-  let entry = listed;
-  if (listed.present) {
-    const get = await dependencies.runClaudeCommand(buildClaudeMcpGetCommand());
-    if (get.ok) {
-      entry = classifyClaudeMcpStatus(list.stdout, get.stdout, dependencies.selectedPetId, dependencies.commandMode, dependencies.preferredNodeCommand);
-    }
-  }
+  const entry = get.ok
+    ? parseClaudeMcpGetOutput(get.stdout, dependencies.selectedPetId, dependencies.commandMode, dependencies.preferredNodeCommand)
+    : missingEntry;
 
   const versionOutput = dependencies.sanitizeOutput(version.stdout || version.stderr);
-  if (!entry.present) return createStatus("needs_setup", "Needs setup", "Claude Code is detected, but OpenPets MCP is not configured.", versionOutput, list, entry);
-  if (entry.verified && entry.matchesExpected) return createStatus("configured", "Configured", "Claude Code has the expected OpenPets MCP entry.", versionOutput, list, entry);
-  if (entry.verified) return createStatus("configured", "Installed — custom", "Claude Code has an openpets MCP entry with a custom command. OpenPets will leave it alone unless you choose Replace with recommended.", versionOutput, list, entry);
-  return createStatus("configured", "Installed — unverified", "Claude Code lists an openpets MCP entry, but command details were not available. OpenPets will leave it alone unless you choose Replace with recommended.", versionOutput, list, entry);
+  if (!entry.present) return createStatus("needs_setup", "Needs setup", "Claude Code is detected, but OpenPets MCP is not configured.", versionOutput, entry);
+  if (entry.verified && entry.matchesExpected) return createStatus("configured", "Configured", "Claude Code has the expected OpenPets MCP entry.", versionOutput, entry);
+  if (entry.verified) return createStatus("configured", "Installed — custom", "Claude Code has an openpets MCP entry with a custom command. OpenPets will leave it alone unless you choose Replace with recommended.", versionOutput, entry);
+  return createStatus("configured", "Installed — unverified", "Claude Code lists an openpets MCP entry, but command details were not available. OpenPets will leave it alone unless you choose Replace with recommended.", versionOutput, entry);
 }
 
 async function runClaudeCommandWithTimeoutRetry(dependencies: ClaudeSetupDependencies, spec: ClaudeCommandSpec): Promise<ClaudeCommandResult> {
@@ -356,7 +351,6 @@ function createStatus(
   label: string,
   details: string,
   version: string | undefined,
-  listResult: ClaudeCommandResult,
   entry: ParsedClaudeMcpEntry,
 ): ClaudeCodeStatus {
   return {
@@ -365,7 +359,6 @@ function createStatus(
     details,
     claudeCommand: "claude",
     version,
-    mcpListWorks: listResult.ok,
     openPetsEntry: entry,
     canConfigure: state === "needs_setup",
     canReplace: entry.present && !(entry.verified && entry.matchesExpected),

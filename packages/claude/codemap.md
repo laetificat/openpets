@@ -78,5 +78,5 @@ client.say(message, { reaction, leaseId }) or client.react(reaction, { leaseId }
 - `claudePackageName` constant
 - `runClaudeHookFromStdin()`, `handleClaudeHookPayload()`
 - `installClaudeHooks()`, `uninstallClaudeHooks()`, `doctorClaudeHooks()`
-- `buildClaudeMcpPreview()`, `parseClaudeMcpGetOutput()`, `classifyClaudeMcpStatus()`
+- `buildClaudeMcpPreview()`, `parseClaudeMcpGetOutput()`, `isClaudeMcpServerMissingOutput()`
 - `validateOpenPetsPetArg()`, `openPetsHookMarker`, `claudeHookEvents`

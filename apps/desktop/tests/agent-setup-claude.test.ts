@@ -8,6 +8,7 @@ import { getClaudeSetup, runClaudeAction, type ClaudeCommandResult, type ClaudeS
 // This protects the Claude Code MCP status, configure action, custom-entry guard, and memory lifecycle.
 const homeDir = mkdtempSync(join(realpathSync(tmpdir()), "openpets-agent-setup-claude-"));
 let state: "missing" | "configured" | "custom" = "missing";
+let getTimesOut = false;
 const journal: ClaudeSetupJournalEntry[] = [];
 
 function commandResult(overrides: Partial<ClaudeCommandResult> = {}): ClaudeCommandResult {
@@ -16,11 +17,11 @@ function commandResult(overrides: Partial<ClaudeCommandResult> = {}): ClaudeComm
 
 const runClaudeCommand = async (spec: { readonly command: string; readonly args: readonly string[] }): Promise<ClaudeCommandResult> => {
   if (spec.args[0] === "--version") return commandResult({ stdout: "Claude Code 1.0.0" });
-  if (spec.args[0] === "mcp" && spec.args[1] === "list") {
-    if (state === "missing") return commandResult({ stdout: "No MCP servers configured" });
-    return commandResult({ stdout: "openpets: configured" });
-  }
+  // `mcp list` health-checks every configured server; with many servers it outlives the status timeout.
+  if (spec.args[0] === "mcp" && spec.args[1] === "list") return commandResult({ ok: false, timedOut: true });
   if (spec.args[0] === "mcp" && spec.args[1] === "get") {
+    if (getTimesOut) return commandResult({ ok: false, timedOut: true });
+    if (state === "missing") return commandResult({ ok: false, exitCode: 1, stderr: 'No MCP server named "openpets". Configured servers: github' });
     if (state === "custom") return commandResult({ stdout: JSON.stringify({ command: "node", args: ["custom.js"] }) });
     return commandResult({ stdout: JSON.stringify({ command: "npx", args: ["-y", "@open-pets/mcp"] }) });
   }
@@ -76,6 +77,12 @@ try {
   const customConfigure = await runClaudeAction("configure", createDependencies());
   assert.equal(customConfigure.ok, false);
   assert.equal(customConfigure.changed, false);
+
+  getTimesOut = true;
+  const timedOutStatus = await getClaudeSetup(createDependencies());
+  assert.equal(timedOutStatus.status.state, "error");
+  assert.match(timedOutStatus.status.details, /MCP status failed/);
+  getTimesOut = false;
 
   const bundledFailure = await runClaudeAction("configure", {
     ...createDependencies("bundled"),

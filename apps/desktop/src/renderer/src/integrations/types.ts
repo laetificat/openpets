@@ -35,7 +35,6 @@ export type ClaudeCodeStatus = {
   readonly details: string;
   readonly claudeCommand?: string;
   readonly version?: string;
-  readonly mcpListWorks: boolean;
   readonly openPetsEntry: {
     readonly present: boolean;
     readonly verified: boolean;

@@ -29,22 +29,29 @@ export async function findAgentSessionLease<T extends AgentSessionLeaseCandidate
   getParent: (pid: number) => Promise<number | null>,
 ): Promise<T | null> {
   const helperAncestors = await collectAncestors(helperPid, getParent);
-  if (helperAncestors.size === 0) return null;
+  if (helperAncestors.length === 0) return null;
 
+  const leasesByAgentPid = new Map<number, T>();
   for (const lease of explicitLeases) {
     if (lease.clientPid === undefined || lease.clientPid === helperPid) continue;
 
     const agentPid = await getParent(lease.clientPid);
-    if (agentPid === null) continue;
+    if (agentPid !== null && !leasesByAgentPid.has(agentPid)) leasesByAgentPid.set(agentPid, lease);
+  }
 
-    if (helperAncestors.has(agentPid)) return lease;
+  // Nearest ancestor wins: an agent started from another agent's shell has both
+  // agents above its hooks, and the hooks belong to the inner one.
+  for (const ancestor of helperAncestors) {
+    const lease = leasesByAgentPid.get(ancestor);
+    if (lease) return lease;
   }
 
   return null;
 }
 
-async function collectAncestors(pid: number, getParent: (pid: number) => Promise<number | null>): Promise<Set<number>> {
-  const ancestors = new Set<number>();
+/** Ancestors of `pid`, nearest first. */
+async function collectAncestors(pid: number, getParent: (pid: number) => Promise<number | null>): Promise<number[]> {
+  const ancestors: number[] = [];
   let current = pid;
 
   for (let depth = 0; depth < maxAncestorDepth; depth++) {
@@ -52,9 +59,9 @@ async function collectAncestors(pid: number, getParent: (pid: number) => Promise
     // PID 1 (launchd/init) adopts orphans; treating it as a shared ancestor
     // would tie unrelated sessions together.
     if (parent === null || parent <= 1) break;
-    if (ancestors.has(parent)) break;
+    if (ancestors.includes(parent)) break;
 
-    ancestors.add(parent);
+    ancestors.push(parent);
     current = parent;
   }
 
